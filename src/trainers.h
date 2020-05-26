@@ -34,6 +34,11 @@ void trn_lbfgs(mdl_t *mdl);
 void trn_sgdl1(mdl_t *mdl);
 void trn_bcd(mdl_t *mdl);
 void trn_rprop(mdl_t *mdl);
-
+void trn_ap(mdl_t *mdl);
+void trn_ap_minup(mdl_t *mdl);
+void trn_perceptron_parallel(mdl_t *mdl);
+void trn_ap_parallel(mdl_t *mdl);
+void trn_ftrl(mdl_t *mdl);
+void trn_ftrl_parallel(mdl_t *mdl);
 #endif
 

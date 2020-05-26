@@ -64,6 +64,9 @@ static void opt_help(const char *pname) {
 		"\t-p | --pattern  FILE    patterns for extracting features\n"
 		"\t-m | --model    FILE    model file to preload\n"
 		"\t-d | --devel    FILE    development dataset\n"
+		"\t-f | --traindir FILE    training files dataset\n"
+		"\t-r | --onlyread         if read train file only\n"
+		"\t   | --filenum  INT     files num\n"
 		"\t   | --rstate   FILE    optimizer state to restore\n"
 		"\t   | --sstate   FILE    optimizer state to save\n"
 		"\t-c | --compact          compact model after training\n"
@@ -122,12 +125,15 @@ const opt_t opt_defaults = {
 	.maxent  = false,
 	.algo    = "l-bfgs", .pattern = NULL,  .model   = NULL, .devel   = NULL,
 	.rstate  = NULL,     .sstate  = NULL,
+    .train_dir = NULL,
+    .onlyread = false,
 	.compact = false,    .sparse  = false,
 	.nthread = 1,        .jobsize = 64,    .maxiter = 0,
 	.rho1    = 0.5,      .rho2    = 0.0001,
 	.objwin  = 5,        .stopwin = 5,     .stopeps = 0.02,
 	.lbfgs = {.clip   = false, .histsz = 5, .maxls = 40},
-	.sgdl1 = {.eta0   = 0.8,   .alpha  = 0.85},
+	.sgdl1 = {.eta0   = 0.8,   .alpha  = 0.85,   .file_num = 0},
+	.ftrl = {.alpha   = 1,   .beta  = 1, .lambda1 = 0.85, .lambda2 = 0},
 	.bcd   = {.kappa  = 1.5},
 	.rprop = {.stpmin = 1e-8, .stpmax = 50.0, .stpinc = 1.2, .stpdec = 0.5,
 	          .cutoff = false},
@@ -153,6 +159,8 @@ struct {
 	{0, "-p", "--pattern", 'S', offsetof(opt_t, pattern     )},
 	{0, "-m", "--model",   'S', offsetof(opt_t, model       )},
 	{0, "-d", "--devel",   'S', offsetof(opt_t, devel       )},
+	{0, "-f", "--traindir",   'S', offsetof(opt_t, train_dir)},
+	{0, "-r", "--onlyread",   'B', offsetof(opt_t, onlyread)},
 	{0, "##", "--rstate",  'S', offsetof(opt_t, rstate      )},
 	{0, "##", "--sstate",  'S', offsetof(opt_t, sstate      )},
 	{0, "-c", "--compact", 'B', offsetof(opt_t, compact     )},
@@ -169,7 +177,15 @@ struct {
 	{0, "##", "--histsz",  'U', offsetof(opt_t, lbfgs.histsz)},
 	{0, "##", "--maxls",   'U', offsetof(opt_t, lbfgs.maxls )},
 	{0, "##", "--eta0",    'F', offsetof(opt_t, sgdl1.eta0  )},
-	{0," ##", "--alpha",   'F', offsetof(opt_t, sgdl1.alpha )},
+	{0, "##", "--alpha",   'F', offsetof(opt_t, sgdl1.alpha )},
+	{0, "##", "--filenum", 'U', offsetof(opt_t, sgdl1.file_num)},
+	{0, "##", "--maxls",   'U', offsetof(opt_t, lbfgs.maxls )},
+
+	{0, "##", "--ftrl_alpha",    'F', offsetof(opt_t, ftrl.alpha  )},
+	{0, "##", "--beta",   'F', offsetof(opt_t, ftrl.beta )},
+	{0, "##", "--lambda1", 'F', offsetof(opt_t, ftrl.lambda1)},
+	{0, "##", "--lambda2", 'F', offsetof(opt_t, ftrl.lambda2)},
+
 	{0, "##", "--kappa",   'F', offsetof(opt_t, bcd.kappa   )},
 	{0, "##", "--stpmin",  'F', offsetof(opt_t, rprop.stpmin)},
 	{0, "##", "--stpmax",  'F', offsetof(opt_t, rprop.stpmax)},

@@ -75,7 +75,7 @@ struct mdl_s {
 	uint64_t *boff;    //  [O]  bigram weights offset
 
 	// The model itself
-	double   *theta;   //  [F]  features weights
+	double   *theta;   //  [F]  features weight
 
 	// Datasets
 	dat_t    *train;   //       training dataset
@@ -86,17 +86,21 @@ struct mdl_s {
 	double   *werr;    //       Window of error rate of last iters
 	uint32_t  wcnt;    //       Number of iters in the window
 	uint32_t  wpos;    //       Position for the next iter
+	double loss; //
 
 	// Timing
 	tms_t     timer;   //       start time of last iter
 	double    total;   //       total training time
 };
 
+
 mdl_t *mdl_new(rdr_t *rdr);
 void mdl_free(mdl_t *mdl);
 void mdl_sync(mdl_t *mdl);
 void mdl_compact(mdl_t *mdl);
 void mdl_save(mdl_t *mdl, FILE *file);
+void mdl_save2file(mdl_t* mdl, char* file_name);
 void mdl_load(mdl_t *mdl, FILE *file);
+void mdl_shallow_copy_except_theta(mdl_t *src_mdl, mdl_t *tgt_mdl);
 
 #endif

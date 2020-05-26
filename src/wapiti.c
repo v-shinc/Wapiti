@@ -64,6 +64,12 @@ static const struct {
 	{"rprop",  trn_rprop},
 	{"rprop+", trn_rprop},
 	{"rprop-", trn_rprop},
+	{"ap", trn_ap},
+	{"ap_minup", trn_ap_minup},
+	{"perceptron_parallel", trn_perceptron_parallel},
+	{"ap_parallel", trn_ap_parallel},
+	{"ftrl", trn_ftrl},
+	{"ftrl_parallel", trn_ftrl_parallel}
 };
 static const uint32_t trn_cnt = sizeof(trn_lst) / sizeof(trn_lst[0]);
 
@@ -113,6 +119,7 @@ static void dotrain(mdl_t *mdl) {
 		fclose(file);
 		qrk_lock(mdl->reader->obs, false);
 	}
+	qrk_lock(mdl->reader->obs, false);
 	// Load the training data. When this is done we lock the quarks as we
 	// don't want to put in the model, informations present only in the
 	// devlopment set.
@@ -123,9 +130,17 @@ static void dotrain(mdl_t *mdl) {
 		if (file == NULL)
 			pfatal("cannot open input data file");
 	}
-	mdl->train = rdr_readdat(mdl->reader, file, true);
+	mdl->train = rdr_readdat(mdl->reader, file, true, true);
 	if (mdl->opt->input != NULL)
 		fclose(file);
+
+    if(NULL != mdl->opt->train_dir && mdl->opt->model == NULL) for (size_t i = 0; i < 45; ++i) {
+        char fname[100];
+        sprintf(fname, "%s/train_%ld.txt", mdl->opt->train_dir, i);
+        info("processing %s\n", fname);
+        rdr_readdat4file(mdl->reader, fname, true);
+    }
+
 	qrk_lock(mdl->reader->lbl, true);
 	qrk_lock(mdl->reader->obs, true);
 	if (mdl->train == NULL || mdl->train->nseq == 0)
@@ -137,7 +152,7 @@ static void dotrain(mdl_t *mdl) {
 		FILE *file = fopen(mdl->opt->devel, "r");
 		if (file == NULL)
 			pfatal("cannot open development file");
-		mdl->devel = rdr_readdat(mdl->reader, file, true);
+		mdl->devel = rdr_readdat(mdl->reader, file, true, true);
 		fclose(file);
 	}
 	// Initialize the model. If a previous model was loaded, this will be
@@ -147,6 +162,11 @@ static void dotrain(mdl_t *mdl) {
 	else
 		info("* Resync the model\n");
 	mdl_sync(mdl);
+    if(NULL != mdl->opt->train_dir && mdl->opt->model == NULL) {
+        char file_name[100];
+        sprintf(file_name, "%s_pre_model", mdl->opt->output);
+        mdl_save2file(mdl, file_name);
+    }
 	// Display some statistics as we all love this.
 	info("* Summary\n");
 	info("    nb train:    %"PRIu32"\n", mdl->train->nseq);
@@ -157,9 +177,11 @@ static void dotrain(mdl_t *mdl) {
 	info("    nb features: %"PRIu64"\n", mdl->nftr);
 	// And train the model...
 	info("* Train the model with %s\n", mdl->opt->algo);
-	uit_setup(mdl);
-	trn_lst[trn].train(mdl);
-	uit_cleanup(mdl);
+    if (mdl->opt->onlyread == false) {
+        uit_setup(mdl);
+        trn_lst[trn].train(mdl);
+        uit_cleanup(mdl);
+    }
 	// If requested compact the model.
 	if (mdl->opt->compact) {
 		const uint64_t O = mdl->nobs;
@@ -219,6 +241,8 @@ static void dolabel(mdl_t *mdl) {
 		fclose(fout);
 }
 
+
+// }
 /*******************************************************************************
  * Dumping
  ******************************************************************************/

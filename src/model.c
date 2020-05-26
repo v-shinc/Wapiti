@@ -143,7 +143,7 @@ void mdl_sync(mdl_t *mdl) {
 		if (mdl->theta != NULL) {
 			xvm_free(mdl->theta);
 			mdl->theta = NULL;
-		}
+		} 
 		oldF = oldO = 0;
 	}
 	mdl->nlbl = Y;
@@ -182,11 +182,14 @@ void mdl_sync(mdl_t *mdl) {
 			new[f] = mdl->theta[f];
 		xvm_free(mdl->theta);
 		mdl->theta = new;
+		
 	} else {
 		mdl->theta = xvm_new(F);
 	}
+
 	for (uint64_t f = oldF; f < F; f++)
 		mdl->theta[f] = 0.0;
+	
 	// And lock the databases
 	qrk_lock(mdl->reader->lbl, true);
 	qrk_lock(mdl->reader->obs, true);
@@ -275,6 +278,21 @@ void mdl_save(mdl_t *mdl, FILE *file) {
 			fprintf(file, "%"PRIu64"=%la\n", f, mdl->theta[f]);
 }
 
+void mdl_save2file(mdl_t* mdl, char* file_name) {
+	// And save the trained model
+	info("* Save the model\n");
+	FILE* file = stdout;
+	if (file != NULL) {
+		file = fopen(file_name, "w");
+		if (file == NULL)
+			pfatal("cannot open output model");
+	}
+	mdl_save(mdl, file);
+	if (file != NULL)
+		fclose(file);
+	info("* Done\n");
+}
+
 /* mdl_load:
  *   Read back a previously saved model to continue training or start labeling.
  *   The returned model is synced and the quarks are locked. You must give to
@@ -302,5 +320,31 @@ void mdl_load(mdl_t *mdl, FILE *file) {
 			fatal(err);
 		mdl->theta[f] = v;
 	}
+}
+
+
+
+void mdl_shallow_copy_except_theta(mdl_t *src_mdl, mdl_t *tgt_mdl) {
+	tgt_mdl->opt = src_mdl->opt;
+	tgt_mdl->type = src_mdl->type;
+
+	tgt_mdl->nlbl = src_mdl->nlbl;
+	tgt_mdl->nobs = src_mdl->nobs;
+	tgt_mdl->nftr = src_mdl->nftr;
+
+	tgt_mdl->kind = src_mdl->kind;
+	tgt_mdl->uoff = src_mdl->uoff;
+	tgt_mdl->boff = src_mdl->boff;
+
+	tgt_mdl->train = src_mdl->train;
+	tgt_mdl->devel = src_mdl->devel;
+	tgt_mdl->reader = src_mdl->reader;
+
+	tgt_mdl->werr = src_mdl->werr;
+	tgt_mdl->wcnt = src_mdl->wcnt;
+	tgt_mdl->wpos = src_mdl->wpos;
+
+	tgt_mdl->timer = src_mdl->timer;
+	tgt_mdl->total = src_mdl->total;
 }
 

@@ -64,7 +64,8 @@ void rdr_loadpat(rdr_t *rdr, FILE *file);
 raw_t *rdr_readraw(rdr_t *rdr, FILE *file);
 seq_t *rdr_raw2seq(rdr_t *rdr, const raw_t *raw, bool lbl);
 seq_t *rdr_readseq(rdr_t *rdr, FILE *file, bool lbl);
-dat_t *rdr_readdat(rdr_t *rdr, FILE *file, bool lbl);
+dat_t *rdr_readdat(rdr_t *rdr, FILE *file, bool lbl, bool store);
+dat_t *rdr_readdat4file(rdr_t *rdr, char *file_name, bool lbl);
 
 void rdr_load(rdr_t *rdr, FILE *file);
 void rdr_save(const rdr_t *rdr, FILE *file);

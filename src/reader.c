@@ -31,6 +31,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <assert.h>
 
 #include "wapiti.h"
 #include "pattern.h"
@@ -359,6 +360,7 @@ static seq_t *rdr_pattok2seq(rdr_t *rdr, const tok_t *tok) {
 			uint64_t id = rdr_mapobs(rdr, obs);
 			if (id == none) {
 				free(obs);
+                assert(false);
 				continue;
 			}
 			// If the observation is ok, add it to the lists
@@ -476,7 +478,7 @@ seq_t *rdr_readseq(rdr_t *rdr, FILE *file, bool lbl) {
  *   take and interpret his parameters like the single sequence reading
  *   function.
  */
-dat_t *rdr_readdat(rdr_t *rdr, FILE *file, bool lbl) {
+dat_t *rdr_readdat(rdr_t *rdr, FILE *file, bool lbl, bool store) {
 	// Prepare dataset
 	uint32_t size = 1000;
 	dat_t *dat = xmalloc(sizeof(dat_t));
@@ -485,6 +487,8 @@ dat_t *rdr_readdat(rdr_t *rdr, FILE *file, bool lbl) {
 	dat->lbl = lbl;
 	dat->seq = xmalloc(sizeof(seq_t *) * size);
 	// Load sequences
+    uint32_t count = 0;
+    uint32_t skip_num = 0;
 	while (!feof(file)) {
 		// Read the next sequence
 		seq_t *seq = rdr_readseq(rdr, file, lbl);
@@ -496,11 +500,21 @@ dat_t *rdr_readdat(rdr_t *rdr, FILE *file, bool lbl) {
 			dat->seq = xrealloc(dat->seq, sizeof(seq_t *) * size);
 		}
 		// And store the sequence
-		dat->seq[dat->nseq++] = seq;
+        if (seq->len > 200) {
+            skip_num += 1;
+            rdr_freeseq(seq);
+            continue;
+        }
+        if (store)
+            dat->seq[dat->nseq++] = seq;
+        count += 1;
 		dat->mlen = max(dat->mlen, seq->len);
-		if (dat->nseq % 1000 == 0)
-			info("%7"PRIu32" sequences loaded\n", dat->nseq);
+		if (dat->nseq % 10000 == 0 && count % 10000 == 0)
+			info("%7"PRIu32" sequences loaded\n", count);
+        if (!store)
+            rdr_freeseq(seq);
 	}
+    info("skip long sen, length>200, skip_num:%d\n", skip_num);
 	// If no sequence readed, cleanup and repport
 	if (dat->nseq == 0) {
 		free(dat->seq);
@@ -511,6 +525,23 @@ dat_t *rdr_readdat(rdr_t *rdr, FILE *file, bool lbl) {
 	if (size > dat->nseq)
 		dat->seq = xrealloc(dat->seq, sizeof(seq_t *) * dat->nseq);
 	return dat;
+}
+
+dat_t *rdr_readdat4file(rdr_t *rdr, char *file_name, bool lbl) {
+	FILE *file = stdin;
+	if (file_name != NULL) {
+		file = fopen(file_name, "r");
+		if (file == NULL)
+			pfatal("cannot open input data file");
+	}
+    dat_t* dat = rdr_readdat(rdr, file, lbl, false);
+    if (NULL != dat) {
+        rdr_freedat(dat);
+    }
+
+	if (file_name != NULL)
+		fclose(file);
+    return NULL;
 }
 
 /* rdr_load:

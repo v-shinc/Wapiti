@@ -45,6 +45,8 @@ struct opt_s {
 	char     *type;
 	char     *algo,   *pattern;
 	char     *model,  *devel;
+    char     *train_dir;
+    bool     onlyread;
 	char     *rstate, *sstate;
 	bool      compact, sparse;
 	uint32_t  nthread;
@@ -65,7 +67,16 @@ struct opt_s {
 	struct {
 		double   eta0;
 		double   alpha;
+		uint32_t file_num;
 	} sgdl1;
+
+	struct {
+		double alpha;
+		double beta;
+		double lambda1;
+		double lambda2;
+	} ftrl;
+
 	// Options specific to BCD
 	struct {
 		double   kappa;
@@ -78,6 +89,10 @@ struct opt_s {
 		double   stpdec;
 		bool     cutoff;
 	} rprop;
+	// Options specific to perceptron
+	struct {
+		double alpha;
+	} perceptron;
 	// Options for labelling
 	bool      label;
 	bool      check;
