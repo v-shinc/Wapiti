@@ -41,12 +41,10 @@
 #include "vmath.h"
 
 /******************************************************************************
- * The SGD-L1 trainer
+ * The FTRL-Proximal trainer
  *
- *   Implementation of the stochatic gradient descend with FTRL (Per-Coordinate 
- *   FTRL-Proximal with L1 and L2 ) described
- *   in [1]. This allow to build really sparse models with the
- *   SGD method.
+ *   Implementation FTRL (Per-Coordinate FTRL-Proximal with L1 and L2 ) described
+ *   in [1].
  *
  *   [1] Ad Click Prediction: a View from the Trenches
  * 	 ./wapiti train  -T crf -a ftrl --ftrl_alpha 1 --lambda1 15 --lambda2 1 --stopeps 0.005 -p template.txt  -d eval2.txt train2.txt  model

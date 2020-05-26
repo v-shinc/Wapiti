@@ -47,8 +47,7 @@
 /******************************************************************************
  * The FTRL-Proximal trainer
  *
- *   Implementation of the stochatic gradient descend with FTRL (Per-Coordinate 
- *   FTRL-Proximal with L1 and L2 ) described
+ *   Implementation of FTRL (Per-Coordinate FTRL-Proximal with L1 and L2 ) described
  *   in [1]. 
  *
  *   [1] Ad Click Prediction: a View from the Trenches
