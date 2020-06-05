@@ -95,6 +95,18 @@ struct mth_s {
 	void     *ud;
 };
 
+typedef struct mth_s_reader mth_t_reader;
+struct mth_s_reader {
+	job_t    *job;
+	uint32_t  id;
+	uint32_t  cnt;
+	func_t_reader   *f;
+	void     *seqs;
+	void     *rdr;
+	void     *raws;
+	bool     lbl;
+};
+
 /* mth_getjob:
  *   Get a new bunch of sequence to process. This function will return a new
  *   batch of sequence to process starting at position <pos> and with size
@@ -115,10 +127,63 @@ bool mth_getjob(job_t *job, uint32_t *cnt, uint32_t *pos) {
 	return true;
 }
 
+static void *mth_stub_reader(void *ud) {
+	mth_t_reader *mth = (mth_t_reader *)ud;
+	mth->f(mth->job, mth->id, mth->cnt, mth->seqs, mth->rdr, mth->raws, mth->lbl);
+	return NULL;
+}
+
 static void *mth_stub(void *ud) {
 	mth_t *mth = (mth_t *)ud;
 	mth->f(mth->job, mth->id, mth->cnt, mth->ud);
 	return NULL;
+}
+
+void mth_spawn_reader(func_t_reader *f, uint32_t W, uint32_t size, uint32_t batch, seq_t* seqs[size], raw_t* raws[size], rdr_t* rdr, bool lbl) {
+	// First prepare the jobs scheduler
+	job_t job, *pjob = NULL;
+	if (size != 0) {
+		pjob = &job;
+		job.size = size;
+		job.send = 0;
+		job.batch = batch;
+		if (pthread_mutex_init(&job.lock, NULL) != 0)
+			fatal("failed to create mutex");
+	}
+	// We handle differently the case where user requested a single thread
+	// for efficiency.
+	if (W == 1) {
+		f(&job, 0, size, seqs, rdr, raws, lbl);
+		return;
+	}
+	// We prepare the parameters structures that will be send to the threads
+	// with informations for calling the user function.
+	mth_t_reader p[W];
+	for (uint32_t w = 0; w < W; w++) {
+		p[w].job = pjob;
+		p[w].id  = w;
+		p[w].cnt = W;
+		p[w].f   = f;
+		p[w].seqs  = seqs;
+        p[w].raws = raws;
+        p[w].rdr = rdr;
+        p[w].lbl = lbl;
+	}
+	// We are now ready to spawn the threads and wait for them to finish
+	// their jobs. So we just create all the thread and try to join them
+	// waiting for there return.
+	pthread_attr_t attr;
+	pthread_attr_init(&attr);
+	pthread_attr_setscope(&attr, PTHREAD_SCOPE_SYSTEM);
+	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
+	pthread_t th[W];
+	for (uint32_t w = 0; w < W; w++)
+		if (pthread_create(&th[w], &attr, &mth_stub_reader, &p[w]) != 0)
+			fatal("failed to create thread");
+	for (uint32_t w = 0; w < W; w++)
+		if (pthread_join(th[w], NULL) != 0)
+			fatal("failed to join thread");
+	pthread_attr_destroy(&attr);
 }
 
 /* mth_spawn:
@@ -137,6 +202,7 @@ void mth_spawn(func_t *f, uint32_t W, void *ud[W], uint32_t size, uint32_t batch
 		if (pthread_mutex_init(&job.lock, NULL) != 0)
 			fatal("failed to create mutex");
 	}
+
 	// We handle differently the case where user requested a single thread
 	// for efficiency.
 	if (W == 1) {

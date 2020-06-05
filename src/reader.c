@@ -39,6 +39,9 @@
 #include "reader.h"
 #include "sequence.h"
 #include "tools.h"
+#include "thread.h"
+#include "progress.h"
+#include <sys/time.h>
 
 /*******************************************************************************
  * Datafile reader
@@ -457,6 +460,12 @@ seq_t *rdr_raw2seq(rdr_t *rdr, const raw_t *raw, bool lbl) {
 	return seq;
 }
 
+int64_t gettimeofday_us() {
+  struct timeval now;
+  gettimeofday(&now, NULL);
+  return now.tv_sec * 1000000L + now.tv_usec;
+}
+
 /* rdr_readseq:
  *   Simple wrapper around rdr_readraw and rdr_raw2seq to directly read a
  *   sequence as a seq_t object from file. This take care of all the process
@@ -464,13 +473,131 @@ seq_t *rdr_raw2seq(rdr_t *rdr, const raw_t *raw, bool lbl) {
  *   to be labeled.
  *   Return NULL if end of file occure before anything as been read.
  */
+
+int64_t time_seq = 0;
+int64_t time_raw = 0;
+
 seq_t *rdr_readseq(rdr_t *rdr, FILE *file, bool lbl) {
+    //int64_t st = gettimeofday_us();
 	raw_t *raw = rdr_readraw(rdr, file);
+    //int64_t et = gettimeofday_us();
+    //time_raw += et - st;
 	if (raw == NULL)
 		return NULL;
+
+    //st = gettimeofday_us();
 	seq_t *seq = rdr_raw2seq(rdr, raw, lbl);
+    //et = gettimeofday_us();
+    //time_seq += et - st;
 	rdr_freeraw(raw);
 	return seq;
+}
+
+static
+void convert_worker(job_t *job, uint32_t id, uint32_t cnt, seq_t *seqs[cnt], rdr_t* rdr, raw_t* raws[cnt], bool lbl) {
+	unused(id && cnt);
+    uint32_t count, pos;
+    uint32_t num = 0;
+	while (mth_getjob(job, &count, &pos)) {
+		for (uint32_t s = pos; !uit_stop && s < pos + count; s++) {
+            if (raws[s] == NULL) {
+                printf("raws is NULL\n");
+            }
+			seqs[s] = rdr_raw2seq(rdr, raws[s], lbl);
+            rdr_freeraw(raws[s]);
+            raws[s] = NULL;
+            ++num;
+            if (num % 10000 == 0)
+                printf("%d\n", num);
+        }
+		if (uit_stop)
+			break;
+	}
+}
+
+dat_t *rdr_readdat_multi(mdl_t* mdl, FILE *file, bool lbl, bool store) {
+    rdr_t *rdr = mdl->reader;
+    // Prepare dataset
+    // read raws
+	uint32_t raw_size = 100000000;
+    raw_t** raws = xmalloc(sizeof(raw_t *) * raw_size);
+    uint32_t raw_id = 0;
+    uint32_t skip_num = 0;
+    uint32_t mlen = 0;
+	while (!feof(file)) {
+        raw_t *raw = rdr_readraw(rdr, file);
+        if (raw == NULL)
+            break;
+        if (raw->len > 200) {
+            skip_num += 1;
+            rdr_freeraw(raw);
+            continue;
+        }
+		mlen = max(mlen, raw->len);
+		if (raw_id == raw_size) {
+			raw_size *= 1.4;
+			raws = xrealloc(raws, sizeof(raw_t *) * raw_size);
+		}
+        raws[raw_id++] = raw;
+		if (raw_id % 10000 == 0) {
+			info("%7"PRIu32" sequences loaded\n", raw_id);
+        }
+    }
+    info("skip long sen, length>200, skip_num:%d\n", skip_num);
+
+	dat_t *dat = xmalloc(sizeof(dat_t));
+	dat->nseq = raw_id;
+	dat->mlen = mlen;
+	dat->lbl = lbl;
+	dat->seq = xmalloc(sizeof(seq_t *) * raw_id);
+    // Convert raws to seq
+	const uint32_t W = mdl->opt->nthread;
+    printf("work before\n");
+    mth_spawn_reader((func_t_reader *)convert_worker, W,
+            raw_id, mdl->opt->jobsize, dat->seq, raws, rdr, lbl);
+    printf("work after\n");
+    free(raws);
+    /*
+	// Load sequences
+	while (!feof(file)) {
+		// Read the next sequence
+		seq_t *seq = rdr_readseq(rdr, file, lbl);
+		if (seq == NULL)
+			break;
+		// Grow the buffer if needed
+		if (dat->nseq == size) {
+			size *= 1.4;
+			dat->seq = xrealloc(dat->seq, sizeof(seq_t *) * size);
+		}
+		// And store the sequence
+        if (seq->len > 200) {
+            skip_num += 1;
+            rdr_freeseq(seq);
+            continue;
+        }
+        if (store)
+            dat->seq[dat->nseq++] = seq;
+        count += 1;
+		dat->mlen = max(dat->mlen, seq->len);
+		if (dat->nseq % 10000 == 0 && count % 10000 == 0) {
+			info("%7"PRIu32" sequences loaded\n", count);
+			info("time_raw=%ld, time_seq=%ld\n", time_raw, time_seq);
+        }
+        if (!store)
+            rdr_freeseq(seq);
+	}
+    info("skip long sen, length>200, skip_num:%d\n", skip_num);
+    */
+	// If no sequence readed, cleanup and repport
+	if (dat->nseq == 0) {
+		free(dat->seq);
+		free(dat);
+		return NULL;
+	}
+	// Adjust the dataset size and return
+	if (raw_id > dat->nseq)
+		dat->seq = xrealloc(dat->seq, sizeof(seq_t *) * dat->nseq);
+	return dat;
 }
 
 /* rdr_readdat:
@@ -509,8 +636,10 @@ dat_t *rdr_readdat(rdr_t *rdr, FILE *file, bool lbl, bool store) {
             dat->seq[dat->nseq++] = seq;
         count += 1;
 		dat->mlen = max(dat->mlen, seq->len);
-		if (dat->nseq % 10000 == 0 && count % 10000 == 0)
+		if (dat->nseq % 10000 == 0 && count % 10000 == 0) {
 			info("%7"PRIu32" sequences loaded\n", count);
+			info("time_raw=%ld, time_seq=%ld\n", time_raw, time_seq);
+        }
         if (!store)
             rdr_freeseq(seq);
 	}

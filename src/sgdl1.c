@@ -109,6 +109,13 @@ void trn_sgdl1(mdl_t *mdl) {
 	for (uint32_t s = 0; s < S; s++) {
 		const seq_t *seq = mdl->train->seq[s];
 		const uint32_t T = seq->len;
+		uint32_t U = 0, B = 0;
+		for (uint32_t t = 0; t < seq->len; t++) {
+			const pos_t *pos = &seq->pos[t];
+			U += pos->ucnt;
+			B += pos->bcnt;
+		}
+
 		uint64_t uobs[U * T + 1];
 		uint64_t bobs[B * T + 1];
 		uint32_t ucnt = 0, bcnt = 0;
@@ -162,6 +169,13 @@ void trn_sgdl1(mdl_t *mdl) {
 			perm[a] = perm[b];
 			perm[b] = t;
 		}
+		double n0    = mdl->opt->sgdl1.eta0;
+        for(size_t x = 0; x < mdl->opt->sgdl1.file_num; ++x)
+            n0 *= 0.5;
+        if (n0 < 1.0e-5) {
+            n0 = 1.0e-5;
+        }
+        // info("n0=%e\n", n0);
 		// And so, we can process sequence in a random order
 		for (uint32_t sp = 0; sp < S && !uit_stop; sp++, i++) {
 			const uint32_t s = perm[sp];
@@ -174,8 +188,7 @@ void trn_sgdl1(mdl_t *mdl) {
 			// And at the same time, we update the total penalty
 			// that must have been applied to each features.
 			//   u <- u + η * rho1 / S
-			const double n0    = mdl->opt->sgdl1.eta0;
-			const double alpha = mdl->opt->sgdl1.alpha;
+            const double alpha = mdl->opt->sgdl1.alpha;
 			const double nk = n0 * pow(alpha, (double)i / S);
 			u = u + nk * mdl->opt->rho1 / S;
 			// Now we apply the update to all unigrams and bigrams

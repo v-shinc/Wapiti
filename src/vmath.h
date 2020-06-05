@@ -35,6 +35,11 @@ const char *xvm_mode(void);
 double *xvm_new(uint64_t N);
 void    xvm_free(double x[]);
 
+
+size_t *xvm_new_size_t(uint64_t N);
+void    xvm_free_size_t(size_t x[]);
+
+
 void xvm_neg(double r[], const double x[], uint64_t N);
 void xvm_sub(double r[], const double x[], const double y[], uint64_t N);
 void xvm_scale(double r[], const double x[], double a, uint64_t N);

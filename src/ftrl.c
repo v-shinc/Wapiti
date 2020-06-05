@@ -30,6 +30,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 #include "wapiti.h"
 #include "gradient.h"
@@ -41,10 +42,12 @@
 #include "vmath.h"
 
 /******************************************************************************
- * The FTRL-Proximal trainer
+ * The SGD-L1 trainer
  *
- *   Implementation FTRL (Per-Coordinate FTRL-Proximal with L1 and L2 ) described
- *   in [1].
+ *   Implementation of the stochatic gradient descend with FTRL (Per-Coordinate 
+ *   FTRL-Proximal with L1 and L2 ) described
+ *   in [1]. This allow to build really sparse models with the
+ *   SGD method.
  *
  *   [1] Ad Click Prediction: a View from the Trenches
  * 	 ./wapiti train  -T crf -a ftrl --ftrl_alpha 1 --lambda1 15 --lambda2 1 --stopeps 0.005 -p template.txt  -d eval2.txt train2.txt  model
@@ -101,8 +104,8 @@ static void sgd_add(uint64_t *obs, uint32_t *cnt, uint64_t new) {
 void trn_ftrl(mdl_t *mdl) {
 	const uint64_t  Y = mdl->nlbl;
 	const uint64_t  F = mdl->nftr;
-	const uint32_t  U = mdl->reader->nuni;
-	const uint32_t  B = mdl->reader->nbi;
+	// const uint32_t  U = mdl->reader->nuni;
+	// const uint32_t  B = mdl->reader->nbi;
 	const uint32_t  S = mdl->train->nseq;
 	const uint32_t  K = mdl->opt->maxiter;
 	      double   *w = mdl->theta;
@@ -113,9 +116,17 @@ void trn_ftrl(mdl_t *mdl) {
 	// unigrams obss and one for bigrams obss.
 	info("    - Build the index\n");
 	sgd_idx_t *idx  = xmalloc(sizeof(sgd_idx_t) * S);
+
 	for (uint32_t s = 0; s < S; s++) {
 		const seq_t *seq = mdl->train->seq[s];
 		const uint32_t T = seq->len;
+		uint32_t U = 0, B = 0;
+		for (uint32_t t = 0; t < seq->len; t++) {
+			const pos_t *pos = &seq->pos[t];
+			U += pos->ucnt;
+			B += pos->bcnt;
+		}
+
 		uint64_t uobs[U * T + 1];
 		uint64_t bobs[B * T + 1];
 		uint32_t ucnt = 0, bcnt = 0;
@@ -133,6 +144,7 @@ void trn_ftrl(mdl_t *mdl) {
 		memcpy(idx[s].uobs, uobs, ucnt * sizeof(uint64_t));
 		memcpy(idx[s].bobs, bobs, bcnt * sizeof(uint64_t));
 	}
+	
 	// double *z = xmalloc(sizeof(double) * F); 
 	double *z = xvm_new(F);
 	memset(z, 0, sizeof(double) * F);
@@ -182,7 +194,7 @@ void trn_ftrl(mdl_t *mdl) {
 		// 	perm[b] = t;
 		// }
 		// And so, we can process sequence in a random order
-		
+
 		for (uint32_t sp = 0; sp < S && !uit_stop; sp++, i++) {
 			const uint32_t s = perm[sp];
 			const seq_t *seq = mdl->train->seq[s];
@@ -243,6 +255,19 @@ void trn_ftrl(mdl_t *mdl) {
 		// Repport progress back to the user
 		if (!uit_progress(mdl, k + 1, -1.0))
 			break;
+		
+		// save model after each iteration
+		if (mdl->opt->save_n_epoch >= 0 && k % mdl->opt->save_n_epoch == 0){
+			char fname[200];
+			sprintf(fname, "%s_%d\n", mdl->opt->output, k+1);
+			info(fname);
+			FILE* file = fopen(fname, "w");
+			if (file == NULL) {
+				fatal("cannot open output model");
+			}
+			mdl_save(mdl, file);
+			fclose(file);
+		}
 	}
 	grd_stfree(grd_st);
 	// Cleanup allocated memory before returning

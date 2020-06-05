@@ -305,7 +305,23 @@ void trn_lbfgs(mdl_t *mdl) {
 			if (dlt < mdl->opt->stopeps)
 				break;
 		}
-	}
+
+		if (k % 5 == 0) {
+			info("* Save the model\n");
+			FILE* file = stdout;
+			char fname[200];
+			sprintf(fname, "%s_%d", mdl->opt->output, k+1);
+			info(fname);
+			file = fopen(fname, "w");
+			if (file == NULL) {
+				fatal("cannot open output model");
+			}
+			mdl_save(mdl, file);
+			fclose(file);
+			info("\n* Done\n");
+		}
+		
+    }
 	// Save the optimizer state if requested by the user
 	if (mdl->opt->sstate != NULL) {
 		FILE *file = fopen(mdl->opt->sstate, "w");

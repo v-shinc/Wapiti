@@ -69,7 +69,7 @@ struct opt_s {
 		double   alpha;
 		uint32_t file_num;
 	} sgdl1;
-
+	// Options specific to FTRL
 	struct {
 		double alpha;
 		double beta;
@@ -93,6 +93,8 @@ struct opt_s {
 	struct {
 		double alpha;
 	} perceptron;
+	int save_n_epoch;
+
 	// Options for labelling
 	bool      label;
 	bool      check;

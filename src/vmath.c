@@ -68,6 +68,9 @@ double *xvm_new(uint64_t N) {
 #endif
 }
 
+
+
+
 /* xvm_free:
  *   Free a vector allocated by xvm_new.
  */
@@ -78,6 +81,8 @@ void xvm_free(double x[]) {
 	free(x);
 #endif
 }
+
+
 
 /* xvm_neg:
  *   Return the component-wise negation of the given vector:

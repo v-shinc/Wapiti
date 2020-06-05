@@ -31,6 +31,7 @@
 #include "wapiti.h"
 #include "model.h"
 #include "sequence.h"
+#include "intmap.h"
 
 /* grd_st_t:
  *   State tracker for the gradient computation. To compute the gradient we need
@@ -61,6 +62,12 @@ struct grd_st_s {
 	double   *bnorm;   // [T]       normalization factors for bigrams
 	uint32_t  first;   //           first position where gradient is needed
 	uint32_t  last;    //           last position where gradient is needed
+	// double   *local_g; // [max_feature_num] 存梯度，只存与sequence有关的特征的梯度
+	// intmap *fid_to_index; // 存特征id到局部特征数字的下标
+	// uint32_t *local_g_offset; // [max_feature_num] 存梯度对应的特征的offset;
+	intmap *local_g;
+
+	uint32_t max_feature_num; // max feature number of sequence;
 };
 
 grd_st_t *grd_stnew(mdl_t *mdl, double *g);
@@ -71,6 +78,10 @@ void grd_fldopsi(grd_st_t *grd_st, const seq_t *seq);
 void grd_flfwdbwd(grd_st_t *grd_st, const seq_t *seq);
 void grd_flupgrad(grd_st_t *grd_st, const seq_t *seq);
 
+void grd_fldopsi_for_mt(grd_st_t *grd_st, const seq_t *seq);
+void grd_flfwdbwd_for_mt(grd_st_t *grd_st, const seq_t *seq);
+void grd_flupgrad_for_mt(grd_st_t *grd_st, const seq_t *seq);
+
 void grd_spdopsi(grd_st_t *grd_st, const seq_t *seq);
 void grd_spfwdbwd(grd_st_t *grd_st, const seq_t *seq);
 void grd_spupgrad(grd_st_t *grd_st, const seq_t *seq);
@@ -78,7 +89,7 @@ void grd_spupgrad(grd_st_t *grd_st, const seq_t *seq);
 void grd_logloss(grd_st_t *grd_st, const seq_t *seq);
 
 void grd_dospl(grd_st_t *grd_st, const seq_t *seq);
-
+void grd_dospl_for_mt(grd_st_t *grd_st, const seq_t *seq);
 /* grd_t:
  *   Multi-threaded full dataset gradient computer. This is used to compute the
  *   gradient by algorithm working on the full dataset at each iterations. It

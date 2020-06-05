@@ -59,7 +59,6 @@ typedef struct timeval tms_t;
  *   labels have not changed, the previously trained weights are kept, else they
  *   are now meaningless so discarded.
  */
-typedef struct mdl_s mdl_t;
 struct mdl_s {
 	opt_t    *opt;     //       options for training
 	int       type;    //       model type
@@ -76,6 +75,7 @@ struct mdl_s {
 
 	// The model itself
 	double   *theta;   //  [F]  features weight
+    double   loss;
 
 	// Datasets
 	dat_t    *train;   //       training dataset
@@ -86,7 +86,6 @@ struct mdl_s {
 	double   *werr;    //       Window of error rate of last iters
 	uint32_t  wcnt;    //       Number of iters in the window
 	uint32_t  wpos;    //       Position for the next iter
-	double loss; //
 
 	// Timing
 	tms_t     timer;   //       start time of last iter

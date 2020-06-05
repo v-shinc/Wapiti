@@ -590,6 +590,47 @@ void grd_flupgrad(grd_st_t *grd_st, const seq_t *seq) {
 	}
 }
 
+void grd_flupgrad_for_mt(grd_st_t *grd_st, const seq_t *seq) {
+	const mdl_t *mdl = grd_st->mdl;
+	const uint32_t Y = mdl->nlbl;
+	const uint32_t T = seq->len;
+	const double (*psi  )[T][Y][Y] = (void *)grd_st->psi;
+	const double (*alpha)[T][Y]    = (void *)grd_st->alpha;
+	const double (*beta )[T][Y]    = (void *)grd_st->beta;
+	const double  *unorm           =         grd_st->unorm;
+	const double  *bnorm           =         grd_st->bnorm;
+	intmap *local_g = grd_st->local_g;
+	double *g = grd_st->g;
+	for (uint32_t t = 0; t < T; t++) {
+		const pos_t *pos = &(seq->pos[t]);
+		for (uint32_t y = 0; y < Y; y++) {
+			double e = (*alpha)[t][y] * (*beta)[t][y] * unorm[t];
+			for (uint32_t n = 0; n < pos->ucnt; n++) {
+				const uint64_t o = pos->uobs[n];
+				// printf("inc uni key=%u value=%f\n", mdl->uoff[o] + y, e);
+				intmap_inc(local_g, mdl->uoff[o] + y, e); 
+				atm_inc(g + mdl->uoff[o] + y, e);
+			}
+		}
+	}
+	for (uint32_t t = 1; t < T; t++) {
+		const pos_t *pos = &(seq->pos[t]);
+		for (uint32_t yp = 0, d = 0; yp < Y; yp++) {
+			for (uint32_t y = 0; y < Y; y++, d++) {
+				double e = (*alpha)[t - 1][yp] * (*beta)[t][y]
+				         * (*psi)[t][yp][y] * bnorm[t];
+				for (uint32_t n = 0; n < pos->bcnt; n++) {
+					const uint64_t o = pos->bobs[n];
+					// printf("inc bi key=%u value=%f\n", mdl->boff[o] + d, e);
+					intmap_inc(local_g, mdl->boff[o] + d, e);
+					atm_inc(g + mdl->boff[o] + d, e); // d是label序号
+				}
+			}
+		}
+	}
+}
+
+
 /* grd_spupgrad:
  *   The sparse matrix make things a bit more complicated here as we cannot
  *   directly multiply with the original Ψ_t(y',y,x) because we have split it
@@ -663,6 +704,7 @@ void grd_subemp(grd_st_t *grd_st, const seq_t *seq) {
 	const uint32_t Y = mdl->nlbl;
 	const uint32_t T = seq->len;
 	double *g = grd_st->g;
+	
 	for (uint32_t t = 0; t < T; t++) {
 		const pos_t *pos = &(seq->pos[t]);
 		const uint32_t y = seq->pos[t].lbl;
@@ -676,6 +718,37 @@ void grd_subemp(grd_st_t *grd_st, const seq_t *seq) {
 		const uint32_t d  = yp * Y + y;
 		for (uint32_t n = 0; n < pos->bcnt; n++)
 			atm_inc(g + mdl->boff[pos->bobs[n]] + d, -1.0);
+	}
+}
+
+
+void grd_subemp_for_mt(grd_st_t *grd_st, const seq_t *seq) {
+	const mdl_t *mdl = grd_st->mdl;
+	const uint32_t Y = mdl->nlbl;
+	const uint32_t T = seq->len;
+	intmap *local_g = grd_st->local_g;
+	double *g = grd_st->g;
+
+	for (uint32_t t = 0; t < T; t++) {
+		const pos_t *pos = &(seq->pos[t]);
+		const uint32_t y = seq->pos[t].lbl;
+		for (uint32_t n = 0; n < pos->ucnt; n++){
+			intmap_inc(local_g, mdl->uoff[pos->uobs[n]] + y, -1.0);
+			atm_inc(g + mdl->uoff[pos->uobs[n]] + y, -1.0);
+			// printf("[subemp] inc uni key=%u v=%f\n", mdl->uoff[n] + y, -1.);
+		}
+	}
+	for (uint32_t t = 1; t < T; t++) {
+		const pos_t *pos = &(seq->pos[t]);
+		const uint32_t yp = seq->pos[t - 1].lbl;
+		const uint32_t y  = seq->pos[t    ].lbl;
+		const uint32_t d  = yp * Y + y;
+		for (uint32_t n = 0; n < pos->bcnt; n++){
+			intmap_inc(local_g, mdl->boff[pos->bobs[n]] + d, -1.0);
+			atm_inc(g + mdl->boff[pos->bobs[n]] + d, -1.0);
+			// printf("[subemp] save bi k=%u v=%f\n", mdl->boff[pos->bobs[n]] + d, -1.);
+		}
+			
 	}
 }
 
@@ -746,8 +819,8 @@ void grd_docrf(grd_st_t *grd_st, const seq_t *seq) {
 	grd_st->last  = seq->len - 1;
 	if (!mdl->opt->sparse) {
 		grd_fldopsi(grd_st, seq);
-		grd_flfwdbwd(grd_st, seq);
-		grd_flupgrad(grd_st, seq);
+		grd_flfwdbwd(grd_st, seq); // 不涉及grad
+		grd_flupgrad(grd_st, seq); // 基于alpha beta M 计算梯度
 	} else {
 		grd_spdopsi(grd_st, seq);
 		grd_spfwdbwd(grd_st, seq);
@@ -755,6 +828,49 @@ void grd_docrf(grd_st_t *grd_st, const seq_t *seq) {
 	}
 	grd_subemp(grd_st, seq);
 	grd_logloss(grd_st, seq);
+}
+// 初始化与梯度相关的数组
+// void grd_init_local(grd_st_t *grd_st, const seq_t *seq) {
+// 	const mdl_t *mdl = grd_st->mdl;
+// 	const uint64_t Y = mdl->nlbl;
+// 	const uint32_t T = seq->len;
+// 	// uint32_t *local_g_offset = grd_st->local_g_offset;
+// 	intmap* fid_to_idx = grd_st->fid_to_index;
+// 	double *local_g = grd_st->local_g;
+// 	uint32_t index = 0;
+// 	intmap_clean(grd_st->fid_to_index);
+// 	memset(local_g, 0, sizeof(double) * grd_st->max_feature_num);
+// 	for (uint32_t t = 0; t < T; t++) {
+// 		const pos_t *pos = &(seq->pos[t]);
+// 		for (uint32_t y = 0; y < Y; y++) {
+// 			for (uint32_t n = 0; n < pos->ucnt; n++) {
+// 				local_g_offset[index] = mdl->uoff[pos->uobs[n]] + y;
+// 				index += 1;
+// 			}
+// 		}
+// 	}
+// 	for (uint32_t t = 1; t < T; t++) {
+// 		const pos_t *pos = &(seq->pos[t]);
+// 		for (uint32_t yp = 0, d = 0; yp < Y; yp++) {
+// 			for (uint32_t y = 0; y < Y; y++, d++) {
+// 				for (uint32_t n = 0; n < pos->bcnt; n++) {
+// 					local_g_offset[index] = mdl->boff[pos->bobs[n]] + d;
+// 					index += 1;
+// 				}
+// 			}
+// 		}
+// 	}
+// }
+// 为sgd ftrl并行化实现的计算crf梯度的方法。梯度不会存在F长度的数组，只会存与seq中x相关的特征的梯度
+void grd_docrf_for_mt(grd_st_t *grd_st, const seq_t *seq) {
+	grd_st->first = 0;
+	grd_st->last  = seq->len - 1;
+	grd_fldopsi(grd_st, seq);
+	grd_flfwdbwd(grd_st, seq); // 不涉及grad
+	// intmap_clean(grd_st->local_g);  
+	grd_flupgrad_for_mt(grd_st, seq); // 基于alpha beta M 计算梯度
+	grd_subemp_for_mt(grd_st, seq);
+	grd_logloss(grd_st, seq); // 不涉及梯度
 }
 
 /******************************************************************************
@@ -821,6 +937,54 @@ void grd_stcheck(grd_st_t *grd_st, uint32_t len) {
 	grd_st->len = len;
 }
 
+void grd_stcheck_for_mt(grd_st_t *grd_st, uint32_t len) {
+	// Check if user ask for clearing the state tracker or if he requested a
+	// bigger tracker. In this case we have to free the previous allocated
+	// memory.
+	// printf("enter grd_stcheck_for_mt\n");
+	if (len == 0 || (len > grd_st->len && grd_st->len != 0)) {
+		if (grd_st->mdl->opt->sparse) {
+			xvm_free(grd_st->psiuni); grd_st->psiuni = NULL;
+			free(grd_st->psiyp);      grd_st->psiyp  = NULL;
+			free(grd_st->psiidx);     grd_st->psiidx = NULL;
+			free(grd_st->psioff);     grd_st->psioff = NULL;
+		}
+		xvm_free(grd_st->psi);   grd_st->psi   = NULL;
+		xvm_free(grd_st->alpha); grd_st->alpha = NULL;
+		xvm_free(grd_st->beta);  grd_st->beta  = NULL;
+		xvm_free(grd_st->unorm); grd_st->unorm = NULL;
+		xvm_free(grd_st->bnorm); grd_st->bnorm = NULL;
+		xvm_free(grd_st->scale); grd_st->scale = NULL;
+		// intmap_free(grd_st->local_g);
+		// free(grd_st->local_g);
+		grd_st->len = 0;
+	}
+	if (len == 0 || len <= grd_st->len){
+		// printf("[grd_stcheck_for_mt] cc\n");
+		return;
+	}
+	// If we are here, we have to allocate a new state. This is simple, we
+	// just have to take care of the special case for sparse mode.
+	const uint32_t Y = grd_st->mdl->nlbl;
+	const uint32_t T = len;
+	grd_st->psi   = xvm_new(T * Y * Y);
+	grd_st->alpha = xvm_new(T * Y);
+	grd_st->beta  = xvm_new(T * Y);
+	grd_st->scale = xvm_new(T);
+	grd_st->unorm = xvm_new(T);
+	grd_st->bnorm = xvm_new(T);
+	// grd_st->local_g = xmalloc(sizeof(intmap));
+	// intmap_create(grd_st->local_g, grd_st->max_feature_num * 2);
+	
+	if (grd_st->mdl->opt->sparse) {
+		grd_st->psiuni = xvm_new(T * Y);
+		grd_st->psiyp  = xmalloc(sizeof(uint32_t) * T * Y * Y);
+		grd_st->psiidx = xmalloc(sizeof(uint32_t) * T * Y);
+		grd_st->psioff = xmalloc(sizeof(uint32_t) * T);
+	}
+	grd_st->len = len;
+}
+
 /* grd_stnew:
  *   Allocation memory for gradient computation state. This allocate memory for
  *   the longest sequence present in the data set.
@@ -840,6 +1004,7 @@ grd_st_t *grd_stnew(mdl_t *mdl, double *g) {
 	grd_st->unorm  = NULL;
 	grd_st->bnorm  = NULL;
 	grd_st->scale  = NULL;
+	grd_st->local_g = NULL;
 	return grd_st;
 }
 
@@ -868,6 +1033,15 @@ void grd_dospl(grd_st_t *grd_st, const seq_t *seq) {
 		grd_docrf(grd_st, seq);
 }
 
+void grd_dospl_for_mt(grd_st_t *grd_st, const seq_t *seq) {
+	grd_stcheck_for_mt(grd_st, seq->len);
+	// printf("grd_st->len=%u\n", grd_st->len);
+	// printf("len=%u\n", seq->len);
+	// if (grd_st->local_g == NULL){
+		// printf("local_g is NULL\n");
+	// }
+	grd_docrf_for_mt(grd_st, seq);
+}
 /* grd_new:
  *   Allocate a new parallel gradient computer. Return a grd_t object who can
  *   compute gradient over the full data set and store it in the vector <g>.
@@ -932,6 +1106,60 @@ void grd_worker(job_t *job, uint32_t id, uint32_t cnt, grd_st_t *grd_st) {
 	}
 }
 
+static
+void grd_worker4file(job_t *job, uint32_t id, uint32_t cnt, grd_st_t *grd_st) {
+	unused(id && cnt);
+	mdl_t *mdl = grd_st->mdl;
+	// is better to do this also in parallel)
+	grd_st->lloss = 0.0;
+#ifdef ATM_ANSI
+	const uint64_t F = mdl->nftr;
+	for (uint64_t f = 0; f < F; f++)
+		grd_st->g[f] = 0.0;
+#endif
+	// Now all is ready, we can process our sequences and accumulate the
+	// gradient and inverse log-likelihood
+    /*
+	uint32_t count, pos;
+	while (mth_getjob(job, &count, &pos)) {
+		for (uint32_t s = pos; !uit_stop && s < pos + count; s++)
+			grd_dospl(grd_st, dat->seq[s]);
+		if (uit_stop)
+			break;
+	}
+    */
+    char fname[100];
+    sprintf(fname, "%s/train_%d.txt", mdl->opt->train_dir, id);
+    info("get gradient from %s\n", fname);
+    FILE* file = fopen(fname, "r");
+    if (file == NULL) {
+        pfatal("cannot open input data file");
+    }
+    int count = 0;
+	while (!feof(file)) {
+        const int NUM = 10000;
+        seq_t* seqs[NUM];
+        int n = 0;
+        while (!feof(file) && n < NUM) {
+            seq_t *seq = rdr_readseq(mdl->reader, file, true);
+            if (NULL == seq)
+                break;
+            seqs[n++] = seq;
+        }
+        if (n <= 0)
+            break;
+        ++count;
+        info("read %s, sens %d*10000\n", fname, count);
+        for (int i = 0; i < n; ++i) {
+            grd_dospl(grd_st, seqs[i]);
+            rdr_freeseq(seqs[i]);
+        }
+        if (count > 20)
+            break;
+    }
+    info("finish grd_gradient %d\n", id);
+}
+
 /* grd_gradient:
  *   Compute the gradient and value of the negative log-likelihood of the model
  *   at current point. The computation is done in parallel taking profit of
@@ -952,8 +1180,13 @@ double grd_gradient(grd_t *grd) {
 	// workers, each one working on a part of the data. As the gradient and
 	// log-likelihood are additive, computing the final values will be
 	// trivial.
-	mth_spawn((func_t *)grd_worker, W, (void **)grd->grd_st,
-		mdl->train->nseq, mdl->opt->jobsize);
+    if (mdl->opt->train_dir == NULL) {
+        mth_spawn((func_t *)grd_worker, W, (void **)grd->grd_st,
+            mdl->train->nseq, mdl->opt->jobsize);
+    } else {
+        mth_spawn((func_t *)grd_worker4file, W, (void **)grd->grd_st,
+            mdl->train->nseq, mdl->opt->jobsize);
+    }
 	if (uit_stop)
 		return -1.0;
 	// All computations are done, it just remain to add all the gradients

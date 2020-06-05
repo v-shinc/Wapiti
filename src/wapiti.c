@@ -69,7 +69,8 @@ static const struct {
 	{"perceptron_parallel", trn_perceptron_parallel},
 	{"ap_parallel", trn_ap_parallel},
 	{"ftrl", trn_ftrl},
-	{"ftrl_parallel", trn_ftrl_parallel}
+	{"ftrl_parallel", trn_ftrl_parallel},
+	{"ftrl_wx", trn_ftrl_wx}
 };
 static const uint32_t trn_cnt = sizeof(trn_lst) / sizeof(trn_lst[0]);
 
@@ -130,7 +131,11 @@ static void dotrain(mdl_t *mdl) {
 		if (file == NULL)
 			pfatal("cannot open input data file");
 	}
-	mdl->train = rdr_readdat(mdl->reader, file, true, true);
+    int64_t st = gettimeofday_us();
+	//mdl->train = rdr_readdat(mdl->reader, file, true, true);
+	mdl->train = rdr_readdat_multi(mdl, file, true, true);
+    int64_t et = gettimeofday_us();
+	info("time_read=%ld\n", et - st);
 	if (mdl->opt->input != NULL)
 		fclose(file);
 
@@ -413,7 +418,26 @@ static void doupdt(mdl_t *mdl) {
 /*******************************************************************************
  * Entry point
  ******************************************************************************/
+#include "intmap.h"
 int main(int argc, char *argv[argc]) {
+	// test intmap
+	// intmap *counter;
+	// counter = xmalloc(sizeof(intmap));
+	// double *arr = xmalloc(sizeof(double) * 2000);
+	// intmap_create(counter, 10);
+	// for (uint32_t i = 0; i < 2000; ++i){
+	// 	const uint32_t a = rand() % 1000;
+	// 	intmap_inc(counter, a, 100);
+	// 	arr[a] += 1.;
+	// }
+	// for (uint32_t i = 0; i < 2000; ++i) {
+	// 	double v = intmap_get(counter, i);
+	// 	if (arr[i] * 100 != v ){
+	// 		printf("arr[%u] = %f != counter[%u] = %f\n", i, arr[i], i, v);
+	// 	}
+	// }
+
+
 	// We first parse command line switchs
 	opt_t opt = opt_defaults;
 	opt_parse(argc, argv, &opt);

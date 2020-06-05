@@ -164,5 +164,3 @@ bool uit_progress(mdl_t *mdl, uint32_t it, double obj) {
 		return false;
 	return res;
 }
-
-

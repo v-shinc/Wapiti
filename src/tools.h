@@ -37,6 +37,7 @@
 
 #define min(a, b) ((a) < (b) ? (a) : (b))
 #define max(a, b) ((a) < (b) ? (b) : (a))
+#define abs(a) ((a) > 0 ? (a): -(a))
 
 void fatal(const char *msg, ...);
 void pfatal(const char *msg, ...);

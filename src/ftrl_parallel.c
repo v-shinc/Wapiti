@@ -43,11 +43,13 @@
 #include "tools.h"
 #include "vmath.h"
 #include "thread.h"
+#include "intmap.h"
 
 /******************************************************************************
  * The FTRL-Proximal trainer
  *
- *   Implementation of FTRL (Per-Coordinate FTRL-Proximal with L1 and L2 ) described
+ *   Implementation of the stochatic gradient descend with FTRL (Per-Coordinate 
+ *   FTRL-Proximal with L1 and L2 ) described
  *   in [1]. 
  *
  *   [1] Ad Click Prediction: a View from the Trenches
@@ -57,6 +59,7 @@
 typedef struct sgd_idx_s {
 	uint64_t *uobs;
 	uint64_t *bobs;
+	uint32_t feature_num;
 } sgd_idx_t;
 
 typedef struct params_s {
@@ -116,19 +119,20 @@ void worker(job_t *job, uint32_t id, uint32_t cnt, params_t *params) {
 	double *n0 = params->n0;
 	double *w = mdl->theta;
 	double *g = params->grd_st->g;
+	intmap *local_g = params->grd_st->local_g;
 	
 	uint32_t count, pos;
 	while (mth_getjob(job, &count, &pos)) {
 		for (uint32_t s = pos; !uit_stop && s < pos + count; s++){
 			uint32_t sp = params->perm[s];
 			const seq_t *seq = mdl->train->seq[sp];
-
+			// printf("sequence[%d]\n", s);
 			// Receive feature vector x_t and let I = {i | x_i != 0}
 			// For i in I compute
 			for (uint32_t n = 0; idx[s].uobs[n] != none; n++) {
 				uint64_t f = mdl->uoff[idx[s].uobs[n]];
 				for (uint32_t y = 0; y < Y; y++, f++) {
-					// compute_weight(f);
+		
 					if (z[f] <= lambda1 && z[f] >= - lambda1) {
 						w[f] = 0;
 					} else {
@@ -140,7 +144,7 @@ void worker(job_t *job, uint32_t id, uint32_t cnt, params_t *params) {
 			for (uint32_t n = 0; idx[s].bobs[n] != none; n++) {
 				uint64_t f = mdl->boff[idx[s].bobs[n]];
 				for (uint32_t d = 0; d < Y * Y; d++, f++) {
-					// compute_weight(f);
+		
 					if (z[f] <= lambda1 && z[f] >= - lambda1) {
 						w[f] = 0;
 					} else {
@@ -149,29 +153,50 @@ void worker(job_t *job, uint32_t id, uint32_t cnt, params_t *params) {
 				}
 			}
 			// compute gradient using the w computed above
-			grd_dospl(params->grd_st, seq);
 			
+			// const uint32_t Y = mdl->nlbl;
+			const uint32_t T = seq->len;
+			// printf("clean\n");
+			// printf("after memset\n");
+			grd_dospl_for_mt(params->grd_st, seq);
+			// printf("dospl\n");
 			for (uint32_t n = 0; idx[s].uobs[n] != none; n++) {
 				uint64_t f = mdl->uoff[idx[s].uobs[n]];
 				for (uint32_t y = 0; y < Y; y++, f++) {
-					double g_2 = g[f] * g[f];
+					double g_ = intmap_get(local_g, f);
+					// if (g[f] != g_) {
+					// 	printf("uninary gradient array != local gradient map\n");
+					// 	printf("uninary g[%u]=%f, local_g[%u]=%f\n", f, f, g[f], g_);
+					// 	exit(0);
+					// }
+					// double g_ = g[f];
+					double g_2 = g_ * g_;
 					double sigma = (sqrt(n0[f] + g_2) - sqrt(n0[f])) / alpha;
-					z[f] += g[f] - sigma * w[f];
+					z[f] += g_ - sigma * w[f];
 					n0[f] += g_2;
-					g[f] = 0.0;
-				}
-			}
-			for (uint32_t n = 0; idx[s].bobs[n] != none; n++) {
-				uint64_t f = mdl->boff[idx[s].bobs[n]];
-				for (uint32_t d = 0; d < Y * Y; d++, f++) {
-					double g_2 = g[f] * g[f];
-					double sigma = (sqrt(n0[f] + g_2) - sqrt(n0[f])) / alpha;
-					z[f] += g[f] - sigma * w[f];
-					n0[f] += g_2;
-					g[f] = 0.0;
+					intmap_del(local_g, f);
+					g[f] = 0;
 				}
 			}
 
+			for (uint32_t n = 0; idx[s].bobs[n] != none; n++) {
+				uint64_t f = mdl->boff[idx[s].bobs[n]];
+				for (uint32_t d = 0; d < Y * Y; d++, f++) {
+					double g_ = intmap_get(local_g, f);
+					// if (g[f] != g_) {
+					// 	printf("binary gradient array != local gradient map\n");
+					// 	printf("binary g[%u]=%f, local_g[%u]=%f\n", g[f], g_);
+					// }
+					// double g_ = g[f];
+					double g_2 = g_ * g_;
+					double sigma = (sqrt(n0[f] + g_2) - sqrt(n0[f])) / alpha;
+					z[f] += g_ - sigma * w[f];
+					n0[f] += g_2;
+					g[f] = 0;
+					intmap_del(local_g, f);
+				}
+			}
+			
 		}
 			
 
@@ -186,20 +211,30 @@ void worker(job_t *job, uint32_t id, uint32_t cnt, params_t *params) {
  */
 void trn_ftrl_parallel(mdl_t *mdl) {
 	const uint64_t  F = mdl->nftr;
-	const uint32_t  U = mdl->reader->nuni;
-	const uint32_t  B = mdl->reader->nbi;
+	// const uint32_t  U = mdl->reader->nuni;
+	// const uint32_t  B = mdl->reader->nbi;
 	const uint32_t  S = mdl->train->nseq;
 	const uint32_t  K = mdl->opt->maxiter;
 	const uint32_t  W = mdl->opt->nthread;
 
-
+	uint32_t max_feature_num_per_seq = 0;
 	info("    - Build the index\n");
 	sgd_idx_t *idx  = xmalloc(sizeof(sgd_idx_t) * S);
 	for (uint32_t s = 0; s < S; s++) {
 		const seq_t *seq = mdl->train->seq[s];
-		const uint32_t T = seq->len;
-		uint64_t uobs[U * T + 1];
-		uint64_t bobs[B * T + 1];
+		// const uint32_t T = seq->len;
+		uint32_t U = 0, B = 0;
+		// 统计每个字符串的特征数量
+		for (uint32_t t = 0; t < seq->len; t++) {
+			const pos_t *pos = &seq->pos[t];
+			U += pos->ucnt;
+			B += pos->bcnt;
+		}
+		if ((U + B) > max_feature_num_per_seq){
+			max_feature_num_per_seq = U + B;
+		}
+		uint64_t uobs[U + 1];
+		uint64_t bobs[B + 1];
 		uint32_t ucnt = 0, bcnt = 0;
 		for (uint32_t t = 0; t < seq->len; t++) {
 			const pos_t *pos = &seq->pos[t];
@@ -212,6 +247,7 @@ void trn_ftrl_parallel(mdl_t *mdl) {
 		bobs[bcnt++] = none;
 		idx[s].uobs = xmalloc(sizeof(uint64_t) * ucnt);
 		idx[s].bobs = xmalloc(sizeof(uint64_t) * bcnt);
+		idx[s].feature_num = U + B;
 		memcpy(idx[s].uobs, uobs, ucnt * sizeof(uint64_t));
 		memcpy(idx[s].bobs, bobs, bcnt * sizeof(uint64_t));
 	}
@@ -240,8 +276,13 @@ void trn_ftrl_parallel(mdl_t *mdl) {
 		params[i]->idx = idx;
 		double *g = xmalloc(sizeof(double) * F);
 		memset(g, 0, sizeof(double) * F);
-		params[i]->grd_st = grd_stnew(mdl, g);
+
+		params[i]->grd_st = grd_stnew(mdl, g);  // 使用local_g存梯度
+		params[i]->grd_st->local_g = xmalloc(sizeof(intmap));
+		params[i]->grd_st->max_feature_num = max_feature_num_per_seq;
+		intmap_create(params[i]->grd_st->local_g, max_feature_num_per_seq * 2);
 		params[i]->perm = perm;
+		
 	}
 	
 	double beta = mdl->opt->ftrl.beta;
@@ -269,6 +310,18 @@ void trn_ftrl_parallel(mdl_t *mdl) {
 		// Repport progress back to the user
 		if (!uit_progress(mdl, k + 1, -1.0))
 			break;
+		// save model after each iteration
+		if (mdl->opt->save_n_epoch >= 0 && k % mdl->opt->save_n_epoch == 0){
+			char fname[200];
+			sprintf(fname, "%s_%d\n", mdl->opt->output, k+1);
+			info(fname);
+			FILE* file = fopen(fname, "w");
+			if (file == NULL) {
+				fatal("cannot open output model");
+			}
+			mdl_save(mdl, file);
+			fclose(file);
+		}
 	}
 	
 	// Cleanup allocated memory before returning
@@ -281,8 +334,10 @@ void trn_ftrl_parallel(mdl_t *mdl) {
 	free(n0);
 	free(z);
 	for (uint32_t i = 0; i < W; ++i) {
+		intmap_free(params[i]->grd_st->local_g);
+		free(params[i]->grd_st->local_g);
 		free(params[i]->grd_st->g);
-		free(params[i]->grd_st);
+		grd_stfree(params[i]->grd_st);
 		free(params[i]);
 	}
 

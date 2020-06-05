@@ -79,6 +79,7 @@ static void opt_help(const char *pname) {
 		"\t-o | --objwin   INT     convergence window size\n"
 		"\t-w | --stopwin  INT     stop window size\n"
 		"\t-e | --stopeps  FLOAT   stop epsilon value\n"
+		"\t   | --save_n_epoch	INT   alternate projection\n"
 		"\t   | --clip             (l-bfgs) clip gradient\n"
 		"\t   | --histsz   INT     (l-bfgs) history size\n"
 		"\t   | --maxls    INT     (l-bfgs) max linesearch iters\n"
@@ -137,6 +138,7 @@ const opt_t opt_defaults = {
 	.bcd   = {.kappa  = 1.5},
 	.rprop = {.stpmin = 1e-8, .stpmax = 50.0, .stpinc = 1.2, .stpdec = 0.5,
 	          .cutoff = false},
+	.save_n_epoch = -1,
 	.label   = false,    .check   = false, .outsc = false,
 	.lblpost = false,    .nbest   = 1,     .force = false,
 	.prec    = 5,        .all     = false,
@@ -192,6 +194,7 @@ struct {
 	{0, "##", "--stpinc",  'F', offsetof(opt_t, rprop.stpinc)},
 	{0, "##", "--stpdec",  'F', offsetof(opt_t, rprop.stpdec)},
 	{0, "##", "--cutoff",  'B', offsetof(opt_t, rprop.cutoff)},
+	{0, "##", "--save_n_epoch", 'U', offsetof(opt_t, save_n_epoch     )},
 	{1, "##", "--me",      'B', offsetof(opt_t, maxent      )},
 	{1, "-m", "--model",   'S', offsetof(opt_t, model       )},
 	{1, "-l", "--label",   'B', offsetof(opt_t, label       )},

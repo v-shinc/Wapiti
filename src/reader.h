@@ -36,6 +36,8 @@
 #include "quark.h"
 #include "sequence.h"
 
+int64_t gettimeofday_us();
+
 /* rdr_t:
  *   The reader object who hold all informations needed to parse the input file:
  *   the patterns and quark for labels and observations. We keep separate count
@@ -72,5 +74,8 @@ void rdr_save(const rdr_t *rdr, FILE *file);
 
 char *rdr_readline(FILE *file);
 
+dat_t *rdr_readdat_multi(mdl_t* mdl, FILE *file, bool lbl, bool store); 
+extern int64_t time_seq;
+extern int64_t time_raw;
 #endif
 

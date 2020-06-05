@@ -25,6 +25,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 #ifndef wapiti_h
+typedef struct mdl_s mdl_t;
 #define wapiti_h
 
 #define VERSION "1.5.0"
